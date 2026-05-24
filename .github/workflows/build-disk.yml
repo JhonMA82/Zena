@@ -121,8 +121,6 @@ jobs:
             UPLOAD_URL=$(echo "$INIT_RESPONSE" | jq -r '.upload_url')
             R2_KEY=$(echo "$INIT_RESPONSE" | jq -r '.r2_key')
 
-            echo "Uploading file..."
-
             curl \
               --fail \
               --retry 10 \
@@ -131,8 +129,84 @@ jobs:
               --upload-file "$FILE" \
               "$UPLOAD_URL"
 
+          elif [ "$TYPE" = "multipart" ]; then
+
+            echo "Multipart upload detected"
+
+            UPLOAD_ID=$(echo "$INIT_RESPONSE" | jq -r '.upload_id')
+            R2_KEY=$(echo "$INIT_RESPONSE" | jq -r '.r2_key')
+            PART_SIZE=$(echo "$INIT_RESPONSE" | jq -r '.part_size')
+            TOTAL_PARTS=$(echo "$INIT_RESPONSE" | jq -r '.total_parts')
+
+            mkdir -p ./parts
+            rm -f ./parts/*
+
+            split \
+              -b "$PART_SIZE" \
+              -d \
+              -a 5 \
+              "$FILE" \
+              ./parts/part_
+
+            ETAGS_FILE=$(mktemp)
+
+            for i in $(seq 1 "$TOTAL_PARTS"); do
+
+              PART_FILE=$(printf "./parts/part_%05d" $((i - 1)))
+
+              echo "Uploading part $i/$TOTAL_PARTS"
+
+              URL=$(echo "$INIT_RESPONSE" | jq -r ".initial_urls[\"$i\"]")
+
+              if [ "$URL" = "null" ] || [ -z "$URL" ]; then
+
+                PART_RESPONSE=$(
+                  curl -fsSL \
+                    -X POST \
+                    https://storage.to/api/upload/parts \
+                    -H "Content-Type: application/json" \
+                    -d "{
+                      \"upload_id\":\"$UPLOAD_ID\",
+                      \"part_numbers\":[$i]
+                    }"
+                )
+
+                URL=$(echo "$PART_RESPONSE" | jq -r '.part_urls[0].url')
+              fi
+
+              HEADERS=$(mktemp)
+
+              curl \
+                --fail \
+                --retry 10 \
+                --retry-all-errors \
+                --retry-delay 5 \
+                -D "$HEADERS" \
+                --upload-file "$PART_FILE" \
+                "$URL"
+
+              ETAG=$(grep -i ETag "$HEADERS" | cut -d' ' -f2- | tr -d '\r')
+
+              echo "{\"partNumber\":$i,\"etag\":$ETAG}" >> "$ETAGS_FILE"
+
+              rm -f "$HEADERS"
+            done
+
+            PARTS_JSON=$(jq -s '.' "$ETAGS_FILE")
+
+            echo "Completing multipart upload..."
+
+            curl -fsSL \
+              -X POST \
+              https://storage.to/api/upload/complete-multipart \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"upload_id\":\"$UPLOAD_ID\",
+                \"parts\":$PARTS_JSON
+              }"
+
           else
-            echo "Multipart uploads are not implemented in this workflow yet."
+            echo "Unknown upload type: $TYPE"
             exit 1
           fi
 
