@@ -9,6 +9,7 @@ on:
     branches: ['*']
     paths-ignore:
       - '**/README.md'
+      - 'releases.json'
   workflow_dispatch:
 
 env:
