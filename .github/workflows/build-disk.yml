@@ -318,9 +318,54 @@ jobs:
           cat ./metadata/releases.json
   
       - name: Publish metadata branch
-        uses: s0/git-publish-subdir-action@develop
         env:
-          REPO: self
-          BRANCH: metadata
-          FOLDER: metadata
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git clone \
+            --depth 1 \
+            --branch metadata \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            metadata-branch \
+            || true
+
+          if [ ! -d metadata-branch/.git ]; then
+            mkdir -p metadata-branch
+
+            cd metadata-branch
+
+            git init
+            git checkout -b metadata
+
+            cd ..
+          fi
+
+          find metadata-branch \
+            -mindepth 1 \
+            -maxdepth 1 \
+            ! -name ".git" \
+            -exec rm -rf {} +
+
+          cp -r metadata/. metadata-branch/
+
+          touch metadata-branch/.nojekyll
+
+          cd metadata-branch
+
+          git add --all
+
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+
+          git commit -m "Update metadata"
+
+          git push \
+            --force \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            metadata
