@@ -335,12 +335,10 @@ jobs:
 
           if [ ! -d metadata-branch/.git ]; then
             mkdir -p metadata-branch
-
             cd metadata-branch
 
             git init
             git checkout -b metadata
-
             cd ..
           fi
 
@@ -351,13 +349,9 @@ jobs:
             -exec rm -rf {} +
 
           cp -r metadata/. metadata-branch/
-
-          touch metadata-branch/.nojekyll
-
           cd metadata-branch
 
           git add --all
-
           if git diff --cached --quiet; then
             echo "No changes"
             exit 0
