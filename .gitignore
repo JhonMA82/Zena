@@ -1,3 +1,4 @@
 cosign.key
 .flox
 .venv
+output/

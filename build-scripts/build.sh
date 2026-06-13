@@ -19,7 +19,6 @@ case "$IMAGE" in
       "integrations.homed"
       "integrations.nix"
       "integrations.virtualization"
-      "sign"
       "initramfs"
     )
     ;;
@@ -38,7 +37,6 @@ case "$IMAGE" in
       "integrations.nix"
       "integrations.virtualization"
       "integrations.nvidia"
-      "sign"
       "initramfs"
     )
     ;;
@@ -47,6 +45,12 @@ case "$IMAGE" in
     exit 1
     ;;
 esac
+
+if [[ -f "/secureboot/MOK.key" ]]; then
+    modules+=("sign")
+else
+    echo "Warning: /secureboot/MOK.key not found; skipping Secure Boot kernel signing."
+fi
 
 for mod in "${modules[@]}"; do
     path="/ctx/modules/${mod//./\/}.sh"
