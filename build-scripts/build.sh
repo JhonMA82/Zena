@@ -19,7 +19,6 @@ case "$IMAGE" in
       "integrations.homed"
       "integrations.nix"
       "integrations.virtualization"
-      "initramfs"
     )
     ;;
   zena-nvidia)
@@ -37,7 +36,6 @@ case "$IMAGE" in
       "integrations.nix"
       "integrations.virtualization"
       "integrations.nvidia"
-      "initramfs"
     )
     ;;
   *)
@@ -46,11 +44,13 @@ case "$IMAGE" in
     ;;
 esac
 
-if [[ -f "/secureboot/MOK.key" ]]; then
+if [[ -f "/run/secrets/mok.key" ]]; then
     modules+=("sign")
 else
-    echo "Warning: /secureboot/MOK.key not found; skipping Secure Boot kernel signing."
+    echo "Warning: /run/secrets/mok.key not found; skipping Secure Boot kernel signing."
 fi
+
+modules+=("initramfs")
 
 for mod in "${modules[@]}"; do
     path="/ctx/modules/${mod//./\/}.sh"

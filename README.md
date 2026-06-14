@@ -64,14 +64,15 @@ Minimum recommended hardware for a pleasant desktop experience:
 * 64-bit x86_64 CPU (modern Intel/AMD recommended)
 * 8 GB RAM (16 GB recommended for heavy development/gaming workloads)
 * 128 GB free disk for system images + user storage (additional space required for encrypted LUKS homes)
-* UEFI firmware (Secure Boot optional; see Roadmap)
+* UEFI firmware (Secure Boot optional; requires enrolling the Zena MOK)
 
 Notes:
 
 * Zena targets laptop, desktop and workstation hardware.
 * Supported Nvidia GPUs (GTX 16xx and RTX series)
 * For gaming, a modern discrete GPU is strongly recommended.
-* See Security considerations section on how to enable secureboot.
+* See Security considerations section on how to enable Secure Boot and enroll the MOK.
+* Local ISO builds without a MOK key require Secure Boot to be disabled; use the `--mok-key` option to sign the kernel locally. See `BUILD-ISO.md` for details.
 
 ## Installation
 

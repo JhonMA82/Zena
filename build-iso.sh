@@ -16,8 +16,10 @@ STORAGE_ROOT=""
 STORAGE_DRIVER="overlay"
 USE_FUSE_OVERLAYFS=0
 USE_IMAGE=""
+TARGET_IMAGE=""
+MOK_KEY_PATH=""
 FEDORA_VERSION="${FEDORA_VERSION:-43}"
-BIB_IMAGE="${BIB_IMAGE:-quay.io/centos-bootc/bootc-image-builder:latest}"
+BIB_IMAGE="${BIB_IMAGE:-ghcr.io/zena-linux/bootc-image-builder:latest}"
 
 usage() {
     cat <<EOF
@@ -34,6 +36,10 @@ Options:
   --fuse-overlayfs     Use fuse-overlayfs as the overlay mount program
   --fedora-version VER Fedora version to use as base (default: ${FEDORA_VERSION})
   --use-image IMAGE    Skip build and use an existing container image for ISO
+  --target-image IMAGE Image reference used as the BIB install origin (default:
+                       ghcr.io/zena-linux/${FLAVOR}:latest)
+  --mok-key PATH       Path to a MOK private key for Secure Boot signing
+                       (passed as a Buildah/Podman secret; default: none)
   --bib IMAGE          bootc-image-builder container image (default: ${BIB_IMAGE})
   -h, --help           Show this help message
 
@@ -98,6 +104,26 @@ parse_args() {
                 fi
                 shift 2
                 ;;
+            --target-image)
+                TARGET_IMAGE="${2:-}"
+                if [[ -z "$TARGET_IMAGE" ]]; then
+                    echo "Error: --target-image requires an image reference" >&2
+                    exit 1
+                fi
+                shift 2
+                ;;
+            --mok-key)
+                MOK_KEY_PATH="${2:-}"
+                if [[ -z "$MOK_KEY_PATH" ]]; then
+                    echo "Error: --mok-key requires a file path" >&2
+                    exit 1
+                fi
+                if [[ ! -f "$MOK_KEY_PATH" ]]; then
+                    echo "Error: MOK key file not found: $MOK_KEY_PATH" >&2
+                    exit 1
+                fi
+                shift 2
+                ;;
             --bib)
                 BIB_IMAGE="${2:-}"
                 if [[ -z "$BIB_IMAGE" ]]; then
@@ -146,8 +172,10 @@ main() {
     parse_args "$@"
 
     local image_tag="localhost/${FLAVOR}:latest"
+    local bib_image_arg="$image_tag"
     local iso_config="${SCRIPT_DIR}/iso/${FLAVOR}.toml"
     local podman_storage_args=()
+    local build_secret_args=()
     local bib_volume_args=()
     local bib_device_args=()
     local bib_env_args=()
@@ -208,6 +236,10 @@ main() {
         echo "==> Using VFS storage driver (slower, but works everywhere)"
     fi
 
+    if [[ -n "$MOK_KEY_PATH" ]]; then
+        build_secret_args=(--secret "id=mok,src=${MOK_KEY_PATH}")
+    fi
+
     if [[ -n "$USE_IMAGE" ]]; then
         image_tag="$USE_IMAGE"
         echo "==> Skipping build, using existing image: $image_tag"
@@ -215,11 +247,24 @@ main() {
         echo "==> Building bootc image: $image_tag (flavor: $FLAVOR)"
         podman build \
             "${podman_storage_args[@]}" \
+            "${build_secret_args[@]}" \
+            --network host \
             --build-arg "FEDORA_VERSION=${FEDORA_VERSION}" \
             --build-arg "IMAGE=${FLAVOR}" \
             -t "$image_tag" \
             "$SCRIPT_DIR"
     fi
+
+    if [[ -z "$TARGET_IMAGE" ]]; then
+        TARGET_IMAGE="ghcr.io/zena-linux/${FLAVOR}:latest"
+    fi
+    if [[ "$image_tag" != "$TARGET_IMAGE" ]]; then
+        echo "==> Tagging image for BIB install origin: $TARGET_IMAGE"
+        podman tag \
+            "${podman_storage_args[@]}" \
+            "$image_tag" "$TARGET_IMAGE"
+    fi
+    bib_image_arg="$TARGET_IMAGE"
 
     echo "==> Generating Anaconda ISO with bootc-image-builder"
     podman run \
@@ -227,6 +272,7 @@ main() {
         --rm \
         --privileged \
         --pull=newer \
+        --network host \
         --security-opt label=type:unconfined_t \
         "${bib_device_args[@]}" \
         "${bib_volume_args[@]}" \
@@ -238,7 +284,7 @@ main() {
         --rootfs btrfs \
         --config /config.toml \
         --use-librepo=True \
-        "$image_tag"
+        "$bib_image_arg"
 
     if [[ -n "$tmp_config_dir" && -d "$tmp_config_dir" ]]; then
         rm -rf "$tmp_config_dir"

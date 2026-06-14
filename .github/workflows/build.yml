@@ -110,11 +110,19 @@ jobs:
             echo "present=true" >> $GITHUB_OUTPUT
           fi
 
+      - name: Require Secure Boot key for non-PR builds
+        if: steps.secret-check.outputs.present == 'false' && github.event_name != 'pull_request'
+        run: |
+          echo "Error: SECUREBOOT_KEY secret is required for non-PR builds." >&2
+          exit 1
+
       - name: Decode Secure Boot keys
         if: steps.secret-check.outputs.present == 'true'
         run: |
-          echo "$SECUREBOOT_KEY" | base64 --decode > system-files/common/secureboot/MOK.key
-          chmod 600 system-files/common/secureboot/MOK.key
+          MOK_KEY_PATH="$(mktemp)"
+          chmod 600 "$MOK_KEY_PATH"
+          echo "$SECUREBOOT_KEY" | base64 --decode > "$MOK_KEY_PATH"
+          echo "MOK_KEY_PATH=$MOK_KEY_PATH" >> "$GITHUB_ENV"
         env:
           SECUREBOOT_KEY: ${{ secrets.SECUREBOOT_KEY }}
 
@@ -128,9 +136,20 @@ jobs:
       - name: Build Image
         id: build_image
         run: |
+          cleanup() {
+            if [[ -n "${MOK_KEY_PATH:-}" && -f "$MOK_KEY_PATH" ]]; then
+              shred -u "$MOK_KEY_PATH" 2>/dev/null || rm -f "$MOK_KEY_PATH"
+            fi
+          }
+          trap cleanup EXIT
+          secret_args=()
+          if [[ -n "${MOK_KEY_PATH:-}" ]]; then
+            secret_args=(--secret "id=mok,src=${MOK_KEY_PATH}")
+          fi
           sudo -E buildah build \
             --file Containerfile \
             --build-arg-file build_args.txt \
+            "${secret_args[@]}" \
             --tag raw-img .
 
       - name: Run Rechunker

@@ -17,6 +17,7 @@ RUN mkdir -p /usr/lib/bootupd/updates \
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/var \
     --mount=type=tmpfs,dst=/tmp \
+    --mount=type=secret,id=mok,target=/run/secrets/mok.key,required=false \
     /ctx/build.sh
 
 RUN bootc container lint

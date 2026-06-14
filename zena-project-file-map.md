@@ -21,12 +21,14 @@ Este documento explica qué hace cada archivo y directorio del repositorio Zena.
 | Archivo | Propósito |
 |---------|-----------|
 | `Containerfile` | Receta de compilación OCI. Parte de `quay.io/fedora/fedora-bootc:${FEDORA_VERSION}`, copia la capa superpuesta del sistema de archivos base y ejecuta `/ctx/build.sh`. |
-| `build-iso.sh` | Script local para construir la imagen bootc y generar la ISO de Anaconda en un solo paso. Soporta storage custom, `fuse-overlayfs`, versión de Fedora y reutilización de imágenes. |
+| `build-iso.sh` | Script local para construir la imagen bootc y generar la ISO de Anaconda en un solo paso. Soporta storage custom, `fuse-overlayfs`, versión de Fedora, reutilización de imágenes, origen de actualizaciones (`--target-image`) y firma local con MOK (`--mok-key`). |
+| `test-iso.sh` | Script local para probar la ISO en una máquina virtual QEMU/KVM con firmware UEFI, con soporte opcional para Secure Boot. |
 | `BUILD-ISO.md` | Guía paso a paso para generar la ISO localmente, incluyendo solución de problemas comunes. |
 | `README.md` | Documentación para el usuario final: características, pasos de instalación, configuración del primer arranque, `zix`, `gaming`, `systemd-homed`, Secure Boot. |
 | `LICENSE` | Licencia Apache 2.0. |
 | `CODE_OF_CONDUCT.md` | Código de conducta Contributor Covenant. |
-| `.gitignore` | Excluye `cosign.key`, `.flox`, `.venv`, `output/`. |
+| `.gitignore` | Excluye `cosign.key`, `system-files/common/secureboot/MOK.key`, `.flox`, `.venv`, `output/`. |
+| `.containerignore` | Excluye `system-files/common/secureboot/MOK.key` del contexto de build para evitar que la clave privada MOK se copie a una capa de imagen. |
 | `cosign.pub` | Clave pública de cosign usada para verificar las firmas de las imágenes de contenedor publicadas. |
 
 ---
@@ -35,7 +37,7 @@ Este documento explica qué hace cada archivo y directorio del repositorio Zena.
 
 ### `build-scripts/build.sh`
 
-Orquestador principal de la compilación. Lee el argumento de compilación `IMAGE` (`zena` o `zena-nvidia`), copia las capas superpuestas de `system-files` correspondientes y ejecuta los scripts de los módulos en un orden fijo. El módulo `sign` solo se ejecuta si existe `/secureboot/MOK.key`; en builds locales sin la clave privada se omite la firma de Secure Boot.
+Orquestador principal de la compilación. Lee el argumento de compilación `IMAGE` (`zena` o `zena-nvidia`), copia las capas superpuestas de `system-files` correspondientes y ejecuta los scripts de los módulos en un orden fijo. El módulo `sign` solo se ejecuta si existe el secreto `/run/secrets/mok.key`; en builds locales sin la clave privada se omite la firma de Secure Boot.
 
 ### `build-scripts/modules/`
 
@@ -160,8 +162,8 @@ Capa superpuesta copiada solo para la variante `zena-nvidia`.
 
 | Archivo | Propósito |
 |---------|-----------|
-| `iso/zena.toml` | Configuración de image-builder para la ISO estándar. El kickstart cambia el sistema instalado a `ghcr.io/zena-linux/zena:latest`, configura idioma español (`es_ES.UTF-8`) y teclado español (`es`), y habilita el módulo `Localization` de Anaconda. |
-| `iso/zena-nvidia.toml` | Igual para la variante NVIDIA, cambiando a `ghcr.io/zena-linux/zena-nvidia:latest`. |
+| `iso/zena.toml` | Configuración de image-builder para la ISO estándar. Configura idioma español (`es_ES.UTF-8`) y teclado español (`es`), y habilita el módulo `Localization` de Anaconda. La imagen Zena se instala directamente porque `bootc-image-builder` la recibe como argumento; la referencia pasada a BIB se convierte en el origen de actualización del deployment. El kickstart ya no contiene un bloque `%post` con `bootc switch`. |
+| `iso/zena-nvidia.toml` | Igual para la variante NVIDIA. |
 
 Ambas configuraciones habilitan los módulos de Almacenamiento, Tiempo de ejecución y Localización de Anaconda, deshabilitando los módulos de Red, Seguridad, Servicios, Usuarios, Suscripción y Zona horaria.
 
@@ -181,7 +183,7 @@ Ambas configuraciones habilitan los módulos de Almacenamiento, Tiempo de ejecuc
 
 | Archivo | Propósito |
 |---------|-----------|
-| `.github/workflows/build.yml` | Compila la imagen de contenedor, la redivide en capas, la firma con cosign y la publica en GHCR. |
+| `.github/workflows/build.yml` | Compila la imagen de contenedor con `buildah`, inyecta la clave privada MOK como secreto de build (`--secret id=mok`), falla en builds que no sean PR si el secreto falta, la redivide en capas, la firma con cosign y la publica en GHCR. |
 | `.github/workflows/build-disk.yml` | Compila la ISO de Anaconda con `bootc-image-builder`, la comprime, la sube al almacenamiento y publica los metadatos de la release. |
 
 ### Otros archivos
@@ -252,7 +254,7 @@ GitHub Actions build-disk.yml
 ## Advertencias conocidas
 
 - `system-files/common/etc/systemd/system/preload.service` referencia `/usr/local/sbin/preload`, pero no se instala ningún paquete preload. Esta unidad probablemente esté obsoleta.
-- La clave privada de Secure Boot (`MOK.key`) no está en el repositorio. Se inyecta durante la CI mediante el secreto `SECUREBOOT_KEY` y se elimina después de firmar.
+- La clave privada de Secure Boot (`MOK.key`) no está en el repositorio. En CI y en builds locales firmados se inyecta como secreto de `buildah`/`podman` (`--secret id=mok`) y nunca se copia a una capa de imagen. El método anterior de leer `/secureboot/MOK.key` fue eliminado porque filtraba la clave en el historial de la imagen.
 - Nix se instala en tiempo de compilación, pero el directorio `/nix` se vacía y se recrea en el primer arranque a partir de `/etc/nix-setup.tar` bajo `/var/lib/nix`, lo que hace que el store sea mutable entre actualizaciones de bootc.
 
 (Fin del archivo - 254 líneas en total)

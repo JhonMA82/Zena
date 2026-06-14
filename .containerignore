@@ -1,5 +1,2 @@
-cosign.key
 system-files/common/secureboot/MOK.key
-.flox
-.venv
-output/
+cosign.key

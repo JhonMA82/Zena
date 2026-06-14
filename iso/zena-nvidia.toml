@@ -2,10 +2,6 @@
 contents = """
 lang es_ES.UTF-8
 keyboard es
-
-%post
-bootc switch --mutate-in-place --transport registry ghcr.io/zena-linux/zena-nvidia:latest
-%end
 """
 
 [customizations.installer.modules]
